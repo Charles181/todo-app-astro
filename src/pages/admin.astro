@@ -1,0 +1,617 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { db, Users, Tasks, Requests, eq, inArray, lt } from "astro:db"; // added lt for date check
+import { sendDiscordNotification } from "../utils/discord";
+
+// Handle Form Submissions
+if (Astro.request.method === "POST") {
+    const formData = await Astro.request.formData();
+    const action = formData.get("action");
+
+    if (action === "verify") {
+        const taskId = Number(formData.get("taskId"));
+        const task = (
+            await db.select().from(Tasks).where(eq(Tasks.id, taskId))
+        ).at(0);
+
+        if (task && task.status === "completed") {
+            // Update Task Status
+            await db
+                .update(Tasks)
+                .set({ status: "verified" })
+                .where(eq(Tasks.id, taskId));
+
+            // Update User Score
+            const user = (
+                await db
+                    .select()
+                    .from(Users)
+                    .where(eq(Users.id, task.assigneeId))
+            ).at(0);
+            if (user) {
+                await db
+                    .update(Users)
+                    .set({ score: user.score + task.points })
+                    .where(eq(Users.id, user.id));
+
+                await sendDiscordNotification({
+                    type: "TASK_APPROVED",
+                    user: { name: user.name },
+                    task: { title: task.title, points: task.points },
+                });
+            }
+        }
+    } else if (action === "create") {
+        const title = formData.get("title") as string;
+        const assigneeId = formData.get("assigneeId") as string;
+        const points = Number(formData.get("points"));
+        const description = formData.get("description") as string;
+
+        await db.insert(Tasks).values({
+            title,
+            description,
+            assigneeId,
+            points,
+            status: "pending",
+            dueDate: new Date(), // Default to today
+        });
+
+        // Notify Assignee
+        const assignee = (
+            await db.select().from(Users).where(eq(Users.id, assigneeId))
+        ).at(0);
+        if (assignee) {
+            await sendDiscordNotification({
+                type: "NEW_TASK",
+                user: { name: assignee.name },
+                task: { title },
+            });
+        }
+    } else if (action === "delete") {
+        const taskId = Number(formData.get("taskId"));
+        await db.delete(Tasks).where(eq(Tasks.id, taskId));
+    } else if (action === "addUser") {
+        const username = formData.get("username") as string;
+        const name = formData.get("name") as string;
+        const role = formData.get("role") as string;
+        const password = formData.get("password") as string;
+
+        await db.insert(Users).values({
+            id: username,
+            name,
+            role,
+            password,
+            score: 0,
+            avatar: "👤",
+        });
+    } else if (action === "deleteUser") {
+        const userId = formData.get("userId") as string;
+        if (userId !== Astro.locals.user?.id) {
+            // Prevent self-delete
+            await db.delete(Users).where(eq(Users.id, userId));
+        }
+    } else if (action === "resetPass") {
+        const userId = formData.get("userId") as string;
+        const newPass = formData.get("newPass") as string;
+        await db
+            .update(Users)
+            .set({ password: newPass })
+            .where(eq(Users.id, userId));
+    } else if (action === "handleRequest") {
+        const requestId = Number(formData.get("requestId"));
+        const status = formData.get("status") as string; // 'approved' | 'rejected'
+
+        await db
+            .update(Requests)
+            .set({ status })
+            .where(eq(Requests.id, requestId));
+    } else if (action === "checkOverdue") {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const overdueTasks = await db
+            .select()
+            .from(Tasks)
+            .where(eq(Tasks.status, "pending"));
+
+        // Filter in JS since we need reliable date comparison
+        for (const task of overdueTasks) {
+            if (task.dueDate && new Date(task.dueDate) < today) {
+                const assignee = (
+                    await db
+                        .select()
+                        .from(Users)
+                        .where(eq(Users.id, task.assigneeId))
+                ).at(0);
+                if (assignee) {
+                    await sendDiscordNotification({
+                        type: "TASK_OVERDUE",
+                        user: { name: assignee.name },
+                        task: { title: task.title },
+                    });
+                }
+            }
+        }
+    }
+}
+// Protection check (Double check)
+if (Astro.locals.user?.role !== "admin") {
+    return Astro.redirect("/");
+}
+
+// Fetch Data
+const allUsers = await db.select().from(Users);
+const children = allUsers.filter((u) => u.role === "child");
+const admins = allUsers.filter((u) => u.role === "admin");
+const tasks = await db.select().from(Tasks);
+const allRequests = await db.select().from(Requests);
+
+const tasksToVerify = tasks.filter((t) => t.status === "completed");
+const pendingRequests = allRequests.filter((r) => r.status === "pending");
+---
+
+<Layout title="Panel de Padres">
+    <div class="space-y-12">
+        <header
+            class="flex justify-between items-center bg-indigo-900 text-white p-6 rounded-2xl shadow-lg"
+        >
+            <div class="text-center">
+                <h1 class="text-3xl font-bold">Panel de Control (Padres)</h1>
+                <p class="text-indigo-200 pt-2">
+                    Administra las tareas y usuarios
+                </p>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Column 1: Verification Queue & Requests & Users */}
+            <div class="lg:col-span-2 space-y-8">
+                {/* Pending Requests Section */}
+                <section>
+                    <h2
+                        class="text-xl font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2"
+                    >
+                        📢 Solicitudes Pendientes
+                        {
+                            pendingRequests.length > 0 && (
+                                <span class="bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">
+                                    {pendingRequests.length}
+                                </span>
+                            )
+                        }
+                    </h2>
+
+                    {
+                        pendingRequests.length === 0 ? (
+                            <div class="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-500">
+                                No hay solicitudes pendientes.
+                            </div>
+                        ) : (
+                            <div class="space-y-4">
+                                {pendingRequests.map((req) => {
+                                    const requester = children.find(
+                                        (c) => c.id === req.requesterId,
+                                    );
+                                    return (
+                                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-l-4 border-l-indigo-400 border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                            <div>
+                                                <div class="text-sm text-slate-500 dark:text-slate-400 font-bold mb-1 flex items-center gap-2">
+                                                    {requester?.avatar}{" "}
+                                                    {requester?.name}
+                                                </div>
+                                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                                    {req.title}
+                                                </h3>
+                                                {req.description && (
+                                                    <p class="text-slate-600 dark:text-slate-300 text-sm italic">
+                                                        "{req.description}"
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div class="flex gap-2">
+                                                <form method="POST">
+                                                    <input
+                                                        type="hidden"
+                                                        name="action"
+                                                        value="handleRequest"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="requestId"
+                                                        value={req.id}
+                                                    />
+                                                    <button
+                                                        name="status"
+                                                        value="approved"
+                                                        type="submit"
+                                                        class="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-sm font-bold transition"
+                                                    >
+                                                        Aprobar
+                                                    </button>
+                                                    <button
+                                                        name="status"
+                                                        value="rejected"
+                                                        type="submit"
+                                                        class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-sm font-bold transition"
+                                                    >
+                                                        Rechazar
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )
+                    }
+                </section>
+
+                <section>
+                    <h2
+                        class="text-xl font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2"
+                    >
+                        🔍 Por Verificar
+                        {
+                            tasksToVerify.length > 0 && (
+                                <span class="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded-full">
+                                    {tasksToVerify.length}
+                                </span>
+                            )
+                        }
+                    </h2>
+
+                    {
+                        tasksToVerify.length === 0 ? (
+                            <div class="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-500">
+                                No hay tareas pendientes de revisión.
+                            </div>
+                        ) : (
+                            <div class="space-y-4">
+                                {tasksToVerify.map((task) => {
+                                    const assignedChild = children.find(
+                                        (c) => c.id === task.assigneeId,
+                                    );
+                                    return (
+                                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-l-4 border-l-amber-400 border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4 transition-colors">
+                                            <div>
+                                                <div class="text-sm text-slate-500 dark:text-slate-400 font-bold mb-1 flex items-center gap-2">
+                                                    {assignedChild?.avatar}{" "}
+                                                    {assignedChild?.name}
+                                                </div>
+                                                <h3 class="text-lg font-bold text-slate-800 dark:text-white">
+                                                    {task.title}
+                                                </h3>
+                                                <p class="text-slate-600 dark:text-slate-300 text-sm">
+                                                    {task.points} pts
+                                                </p>
+                                            </div>
+                                            <form
+                                                method="POST"
+                                                class="flex gap-2"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="taskId"
+                                                    value={task.id}
+                                                />
+                                                <button
+                                                    name="action"
+                                                    value="verify"
+                                                    type="submit"
+                                                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm transition active:scale-95"
+                                                >
+                                                    Aprobar (+{task.points})
+                                                </button>
+                                            </form>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )
+                    }
+                </section>
+
+                <section>
+                    <h2
+                        class="text-xl font-bold text-slate-800 dark:text-white mb-4"
+                    >
+                        👥 Gestión de Usuarios
+                    </h2>
+                    <div
+                        class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4"
+                    >
+                        <div class="space-y-4">
+                            {
+                                allUsers.map((u) => (
+                                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 last:border-0 pb-2 last:pb-0">
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-2xl">
+                                                {u.avatar}
+                                            </span>
+                                            <div>
+                                                <div class="font-bold text-slate-800 dark:text-white">
+                                                    {u.name}{" "}
+                                                    <span class="text-xs text-slate-400">
+                                                        ({u.role})
+                                                    </span>
+                                                </div>
+                                                <div class="text-xs text-slate-400">
+                                                    ID: {u.id}
+                                                    {u.role === "child"
+                                                        ? ` | Score: ${u.score}`
+                                                        : ""}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            {/* Reset Pass Form */}
+                                            <form
+                                                method="POST"
+                                                class="flex gap-1"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="action"
+                                                    value="resetPass"
+                                                />
+                                                <input
+                                                    type="hidden"
+                                                    name="userId"
+                                                    value={u.id}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    name="newPass"
+                                                    placeholder="New Pass"
+                                                    class="w-20 text-xs p-1 border rounded dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                                                />
+                                                <button class="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded hover:bg-slate-300 dark:hover:bg-slate-600">
+                                                    Reset
+                                                </button>
+                                            </form>
+                                            {/* Delete Form */}
+                                            {u.id !== Astro.locals.user?.id && (
+                                                <form
+                                                    method="POST"
+                                                    onsubmit="return confirm('¿Eliminar usuario?');"
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="action"
+                                                        value="deleteUser"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="userId"
+                                                        value={u.id}
+                                                    />
+                                                    <button class="text-red-500 hover:text-red-700 transition">
+                                                        🗑️
+                                                    </button>
+                                                </form>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            }
+                        </div>
+
+                        {/* Add User Form */}
+                        <form
+                            method="POST"
+                            class="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700 grid grid-cols-2 gap-2"
+                        >
+                            <input
+                                type="hidden"
+                                name="action"
+                                value="addUser"
+                            />
+                            <input
+                                type="text"
+                                name="username"
+                                placeholder="ID Usuario"
+                                required
+                                class="p-2 border rounded text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                            />
+                            <input
+                                type="text"
+                                name="name"
+                                placeholder="Nombre"
+                                required
+                                class="p-2 border rounded text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                            />
+                            <input
+                                type="password"
+                                name="password"
+                                placeholder="Contraseña"
+                                required
+                                class="p-2 border rounded text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                            />
+                            <select
+                                name="role"
+                                class="p-2 border rounded text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                            >
+                                <option value="child">Hijo</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                            <button
+                                class="col-span-2 bg-indigo-600 text-white py-2 rounded font-bold hover:bg-indigo-700"
+                                >Agregar Usuario</button
+                            >
+                        </form>
+                    </div>
+                </section>
+            </div>
+
+            {/* Column 2: Create Task */}
+            <div
+                class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700 h-fit transition-colors"
+            >
+                <h2
+                    class="text-xl font-bold text-indigo-800 dark:text-indigo-400 mb-6"
+                >
+                    ➕ Nueva Tarea
+                </h2>
+                <form method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="create" />
+
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                            >Título</label
+                        >
+                        <input
+                            type="text"
+                            name="title"
+                            required
+                            class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="Ej: Sacar la basura"
+                        />
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                            >Descripción</label
+                        >
+                        <textarea
+                            name="description"
+                            rows="2"
+                            class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="Detalles extra..."></textarea>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                            >Asignar a</label
+                        >
+                        <select
+                            name="assigneeId"
+                            required
+                            class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:border-indigo-500 focus:ring-indigo-500"
+                        >
+                            {
+                                children.map((c) => (
+                                    <option value={c.id}>{c.name}</option>
+                                ))
+                            }
+                        </select>
+                    </div>
+
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                            >Puntos</label
+                        >
+                        <input
+                            type="number"
+                            name="points"
+                            value="10"
+                            min="1"
+                            class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:border-indigo-500 focus:ring-indigo-500"
+                        />
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md active:scale-95"
+                    >
+                        Crear Tarea
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <section class="mt-12">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-slate-800 dark:text-white">
+                    📋 Todas las Tareas
+                </h2>
+                <form
+                    method="POST"
+                    onsubmit="return confirm('¿Enviar alerta de atrasos a Discord?');"
+                >
+                    <input type="hidden" name="action" value="checkOverdue" />
+                    <button
+                        class="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded-lg font-bold flex items-center gap-2"
+                    >
+                        🚨 Verificar Atrasos
+                    </button>
+                </form>
+            </div>
+            <div
+                class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden text-slate-800 dark:text-slate-200"
+            >
+                <table class="w-full text-left text-sm text-slate-600">
+                    <thead
+                        class="bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold uppercase text-xs"
+                    >
+                        <tr>
+                            <th class="p-4">Tarea</th>
+                            <th class="p-4">Asignado</th>
+                            <th class="p-4">Estado</th>
+                            <th class="p-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody
+                        class="divide-y divide-slate-100 dark:divide-slate-700"
+                    >
+                        {
+                            tasks.map((t) => {
+                                const assignee = children.find(
+                                    (c) => c.id === t.assigneeId,
+                                );
+                                return (
+                                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                                        <td class="p-4 font-medium text-slate-800 dark:text-white">
+                                            {t.title}
+                                        </td>
+                                        <td class="p-4">{assignee?.name}</td>
+                                        <td class="p-4">
+                                            <span
+                                                class={`px-2 py-1 rounded-full text-xs font-bold 
+                                            ${
+                                                t.status === "completed"
+                                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-100"
+                                                    : t.status === "verified"
+                                                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100"
+                                                      : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                                            }`}
+                                            >
+                                                {t.status === "completed"
+                                                    ? "Revisión"
+                                                    : t.status === "verified"
+                                                      ? "Completada"
+                                                      : "Pendiente"}
+                                            </span>
+                                        </td>
+                                        <td class="p-4">
+                                            <form
+                                                method="POST"
+                                                onsubmit="return confirm('¿Borrar tarea?');"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="action"
+                                                    value="delete"
+                                                />
+                                                <input
+                                                    type="hidden"
+                                                    name="taskId"
+                                                    value={t.id}
+                                                />
+                                                <button class="text-red-400 hover:text-red-600 transition">
+                                                    🗑️
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</Layout>
