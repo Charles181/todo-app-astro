@@ -75,6 +75,35 @@ if (Astro.request.method === "POST") {
 				request: { item: title, details: description },
 			});
 		}
+	} else if (action === "add_homework") {
+		const title = formData.get("title") as string;
+		const description = formData.get("description") as string;
+		const dueDateStr = formData.get("dueDate") as string;
+		let dueDate: Date;
+		if (dueDateStr) {
+			const [year, month, day] = dueDateStr.split("-").map(Number);
+			dueDate = new Date(year, month - 1, day);
+		} else {
+			dueDate = new Date();
+		}
+
+		if (title) {
+			await db.insert(Tasks).values({
+				title,
+				description,
+				assigneeId: userId,
+				status: "pending",
+				points: 10,
+				dueDate: dueDate,
+				assignedDate: new Date(),
+			});
+
+			await sendDiscordNotification({
+				type: "NEW_TASK", // You might want to create a specific type for this (utils/discord.ts) , but NEW_TASK works
+				user: { name: user.name },
+				task: { title: `${title} (Autocreada)` },
+			});
+		}
 	}
 }
 
@@ -278,6 +307,59 @@ const potentialPoints = completedTasks.reduce((acc, t) => acc + t.points, 0);
 
 			{/* Sidebar: Requests & Other Tools */}
 			<div class="space-y-8">
+				{/* Add Homework Form */}
+				<div
+					class="bg-white dark:bg-slate-800 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700 p-6"
+				>
+					<h2
+						class="text-xl font-bold text-indigo-800 dark:text-indigo-400 mb-4"
+					>
+						📚 Agregar Tarea Escolar
+					</h2>
+					<form method="POST" class="space-y-4">
+						<input
+							type="hidden"
+							name="action"
+							value="add_homework"
+						/>
+						<div>
+							<input
+								type="text"
+								name="title"
+								required
+								placeholder="Ej. Tarea de español"
+								class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+							/>
+						</div>
+						<div>
+							<textarea
+								name="description"
+								rows="2"
+								placeholder="Resúmen de página 16"
+								class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+							></textarea>
+						</div>
+						<div>
+							<label class="text-xs text-slate-500 mb-1 block">
+								Fecha de entrega
+							</label>
+							<input
+								type="date"
+								name="dueDate"
+								required
+								value={new Date().toISOString().split("T")[0]}
+								class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+							/>
+						</div>
+						<button
+							type="submit"
+							class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl transition shadow active:scale-95"
+						>
+							Guardar Tarea
+						</button>
+					</form>
+				</div>
+
 				{/* Request Form */}
 				<div
 					class="bg-white dark:bg-slate-800 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700 p-6"
