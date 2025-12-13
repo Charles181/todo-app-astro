@@ -29,6 +29,7 @@ export const Tasks = defineTable({
     status: column.text(), // 'pending', 'completed', 'verified'
     points: column.number({ default: 10 }),
     isRecurring: column.boolean({ default: false }),
+    assignedDate: column.date({ optional: true }),
   }
 });
 

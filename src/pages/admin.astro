@@ -47,13 +47,23 @@ if (Astro.request.method === "POST") {
         const points = Number(formData.get("points"));
         const description = formData.get("description") as string;
 
+        const dueDateStr = formData.get("dueDate") as string;
+        let dueDate: Date;
+        if (dueDateStr) {
+            const [year, month, day] = dueDateStr.split("-").map(Number);
+            dueDate = new Date(year, month - 1, day);
+        } else {
+            dueDate = new Date();
+        }
+
         await db.insert(Tasks).values({
             title,
             description,
             assigneeId,
             points,
             status: "pending",
-            dueDate: new Date(), // Default to today
+            dueDate,
+            assignedDate: new Date(),
         });
 
         // Notify Assignee
@@ -152,7 +162,7 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
 <Layout title="Panel de Padres">
     <div class="space-y-12">
         <header
-            class="flex justify-between items-center bg-indigo-900 text-white p-6 rounded-2xl shadow-lg"
+            class="flex justify-between items-center bg-blue-900 dark:bg-slate-800 text-white p-6 rounded-2xl shadow-lg"
         >
             <div class="text-center">
                 <h1 class="text-3xl font-bold">Panel de Control (Padres)</h1>
@@ -512,6 +522,20 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                         />
                     </div>
 
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                            >Fecha Límite</label
+                        >
+                        <input
+                            type="date"
+                            name="dueDate"
+                            required
+                            value={new Date().toISOString().split("T")[0]}
+                            class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:border-indigo-500 focus:ring-indigo-500"
+                        />
+                    </div>
+
                     <button
                         type="submit"
                         class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md active:scale-95"
@@ -548,6 +572,7 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                     >
                         <tr>
                             <th class="p-4">Tarea</th>
+                            <th class="p-4">Vence</th>
                             <th class="p-4">Asignado</th>
                             <th class="p-4">Estado</th>
                             <th class="p-4">Acciones</th>
@@ -561,10 +586,31 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                 const assignee = children.find(
                                     (c) => c.id === t.assigneeId,
                                 );
+                                const isOverdue =
+                                    t.status === "pending" &&
+                                    t.dueDate &&
+                                    new Date(t.dueDate) <
+                                        new Date(
+                                            new Date().setHours(0, 0, 0, 0),
+                                        );
+
                                 return (
-                                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                                    <tr
+                                        class={`hover:bg-slate-50 dark:hover:bg-slate-700 transition ${
+                                            isOverdue
+                                                ? "bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500"
+                                                : ""
+                                        }`}
+                                    >
                                         <td class="p-4 font-medium text-slate-800 dark:text-white">
                                             {t.title}
+                                        </td>
+                                        <td class="p-4 text-xs font-mono text-slate-500">
+                                            {t.dueDate
+                                                ? new Date(
+                                                      t.dueDate,
+                                                  ).toLocaleDateString()
+                                                : "-"}
                                         </td>
                                         <td class="p-4">{assignee?.name}</td>
                                         <td class="p-4">
@@ -572,10 +618,10 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                 class={`px-2 py-1 rounded-full text-xs font-bold 
                                             ${
                                                 t.status === "completed"
-                                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-100"
+                                                    ? "bg-amber-100 text-amber-700 dark:bg-yellow-500 dark:text-white"
                                                     : t.status === "verified"
-                                                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100"
-                                                      : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                                                      ? "bg-green-100 text-green-700 dark:bg-green-500 dark:text-white"
+                                                      : "bg-slate-100 text-slate-600 dark:bg-red-500 dark:text-white"
                                             }`}
                                             >
                                                 {t.status === "completed"

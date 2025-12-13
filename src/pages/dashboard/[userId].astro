@@ -161,14 +161,30 @@ const potentialPoints = completedTasks.reduce((acc, t) => acc + t.points, 0);
 												<span class="bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 text-xs font-bold px-2 py-1 rounded uppercase">
 													{task.points} Puntos
 												</span>
-												{task.dueDate && (
-													<span class="text-xs text-slate-400">
-														📅{" "}
-														{new Date(
-															task.dueDate,
-														).toLocaleDateString()}
-													</span>
-												)}
+												<div class="flex flex-col items-end gap-1">
+													{task.assignedDate && (
+														<span
+															class="text-xs text-slate-400"
+															title="Fecha de asignación"
+														>
+															📥{" "}
+															{new Date(
+																task.assignedDate,
+															).toLocaleDateString()}
+														</span>
+													)}
+													{task.dueDate && (
+														<span
+															class="text-xs text-slate-500 dark:text-slate-400"
+															title="Fecha de vencimiento"
+														>
+															📅{" "}
+															{new Date(
+																task.dueDate,
+															).toLocaleDateString()}
+														</span>
+													)}
+												</div>
 											</div>
 											<h3 class="text-xl font-bold text-slate-800 dark:text-white mb-2">
 												{task.title}
