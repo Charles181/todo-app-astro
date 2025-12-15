@@ -371,11 +371,11 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                 <input
                                                     type="text"
                                                     name="newPass"
-                                                    placeholder="New Pass"
-                                                    class="w-20 text-xs p-1 border rounded dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                                                    placeholder="Nueva contraseña"
+                                                    class="w-40 text-xs p-1 border rounded dark:bg-slate-700 dark:text-white dark:border-slate-600"
                                                 />
                                                 <button class="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded hover:bg-slate-300 dark:hover:bg-slate-600">
-                                                    Reset
+                                                    Cambiar contraseña
                                                 </button>
                                             </form>
                                             {/* Delete Form */}
@@ -573,6 +573,7 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                         <tr>
                             <th class="p-4">Tarea</th>
                             <th class="p-4">Vence</th>
+                            <th class="p-4">Puntos</th>
                             <th class="p-4">Asignado</th>
                             <th class="p-4">Estado</th>
                             <th class="p-4">Acciones</th>
@@ -611,6 +612,9 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                       t.dueDate,
                                                   ).toLocaleDateString()
                                                 : "-"}
+                                        </td>
+                                        <td class="p-4 text-xs font-bold">
+                                            +{t.points}
                                         </td>
                                         <td class="p-4">{assignee?.name}</td>
                                         <td class="p-4">
