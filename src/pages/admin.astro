@@ -141,6 +141,23 @@ if (Astro.request.method === "POST") {
                 }
             }
         }
+    } else if (action === "edit") {
+        const taskId = Number(formData.get("taskId"));
+        const title = formData.get("title") as string;
+        const description = formData.get("description") as string;
+        const points = Number(formData.get("points"));
+        const dueDateStr = formData.get("dueDate") as string;
+
+        let dueDate: Date | null = null;
+        if (dueDateStr) {
+            const [year, month, day] = dueDateStr.split("-").map(Number);
+            dueDate = new Date(year, month - 1, day);
+        }
+
+        await db
+            .update(Tasks)
+            .set({ title, description, points, dueDate })
+            .where(eq(Tasks.id, taskId));
     }
 }
 // Protection check (Double check)
@@ -170,6 +187,12 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                     Administra las tareas y usuarios
                 </p>
             </div>
+            <a
+                href="/reports"
+                class="bg-indigo-500 hover:bg-indigo-400 text-white px-4 py-2 rounded-lg font-bold transition flex items-center gap-2 shadow-lg"
+            >
+                📊 Ver Reportes
+            </a>
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -650,10 +673,14 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                     name="taskId"
                                                     value={t.id}
                                                 />
-                                                <button class="text-red-400 hover:text-red-600 transition">
-                                                    🗑️
-                                                </button>
+                                                <button class="text-red-400 hover:text-red-600 transition" />
                                             </form>
+                                            <button
+                                                class="edit-btn text-blue-400 hover:text-blue-600 transition"
+                                                data-task={JSON.stringify(t)}
+                                            >
+                                                ✏️
+                                            </button>
                                         </td>
                                     </tr>
                                 );
@@ -665,3 +692,126 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
         </section>
     </div>
 </Layout>
+
+<dialog
+    id="editDialog"
+    class="p-6 rounded-2xl shadow-2xl backdrop:bg-black/50 dark:bg-slate-800 border dark:border-slate-700 w-full max-w-md"
+>
+    <h3 class="text-xl font-bold mb-4 text-slate-800 dark:text-white">
+        Editar Tarea
+    </h3>
+    <form method="POST" class="space-y-4">
+        <input type="hidden" name="action" value="edit" />
+        <input type="hidden" name="taskId" id="editTaskId" />
+
+        <div>
+            <label
+                class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >Título</label
+            >
+            <input
+                type="text"
+                name="title"
+                id="editTitle"
+                required
+                class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            />
+        </div>
+
+        <div>
+            <label
+                class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >Descripción</label
+            >
+            <textarea
+                name="description"
+                id="editDescription"
+                rows="2"
+                class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            ></textarea>
+        </div>
+
+        <div>
+            <label
+                class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >Puntos</label
+            >
+            <input
+                type="number"
+                name="points"
+                id="editPoints"
+                required
+                class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            />
+        </div>
+
+        <div>
+            <label
+                class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >Fecha Límite</label
+            >
+            <input
+                type="date"
+                name="dueDate"
+                id="editDueDate"
+                class="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+            />
+        </div>
+
+        <div class="flex justify-end gap-2 mt-6">
+            <button
+                type="button"
+                onclick="document.getElementById('editDialog').close()"
+                class="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                >Cancelar</button
+            >
+            <button
+                type="submit"
+                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >Guardar Cambios</button
+            >
+        </div>
+    </form>
+</dialog>
+
+<script>
+    const editButtons = document.querySelectorAll(".edit-btn");
+    const dialog = document.getElementById("editDialog") as HTMLDialogElement;
+
+    // Form elements
+    const taskIdInput = document.getElementById(
+        "editTaskId",
+    ) as HTMLInputElement;
+    const titleInput = document.getElementById("editTitle") as HTMLInputElement;
+    const descInput = document.getElementById(
+        "editDescription",
+    ) as HTMLTextAreaElement;
+    const pointsInput = document.getElementById(
+        "editPoints",
+    ) as HTMLInputElement;
+    const dateInput = document.getElementById(
+        "editDueDate",
+    ) as HTMLInputElement;
+
+    editButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+            // @ts-ignore
+            const task = JSON.parse(btn.dataset.task);
+
+            taskIdInput.value = task.id;
+            titleInput.value = task.title;
+            descInput.value = task.description || "";
+            pointsInput.value = task.points;
+
+            if (task.dueDate) {
+                dateInput.value = new Date(task.dueDate)
+                    .toISOString()
+                    .split("T")[0];
+            } else {
+                dateInput.value = "";
+            }
+
+            dialog.showModal();
+        });
+    });
+</script>

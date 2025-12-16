@@ -71,7 +71,7 @@ export async function sendDiscordNotification(data: NotificationData) {
         case 'TASK_OVERDUE':
             embed = {
                 title: `🚨 TASK OVERDUE - Action Required`,
-                description: `The task **"${data.task?.title}"** assigned to ${data.user.name} has passed its due date.`,
+                description: `La tarea **"${data.task?.title}"** asignada a ${data.user.name} ha pasado su fecha límite.`,
                 color: COLORS.ALERT,
             };
             break;

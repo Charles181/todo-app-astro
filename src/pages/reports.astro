@@ -1,0 +1,175 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { db, Users, Tasks, eq } from "astro:db";
+
+if (Astro.locals.user?.role !== "admin") {
+    return Astro.redirect("/");
+}
+
+const users = await db.select().from(Users);
+const tasks = await db.select().from(Tasks);
+const children = users.filter((u) => u.role === "child");
+
+// Prepare Data
+const pointsData = children.map((c) => c.score);
+const names = children.map((c) => c.name);
+const completedTasksData = children.map(
+    (c) =>
+        tasks.filter((t) => t.assigneeId === c.id && t.status === "verified")
+            .length,
+);
+
+const totalPending = tasks.filter((t) => t.status === "pending").length;
+const totalCompleted = tasks.filter((t) => t.status === "verified").length;
+
+const chartData = {
+    names,
+    pointsData,
+    completedTasksData,
+    statusData: [totalPending, totalCompleted],
+};
+---
+
+<Layout title="Reportes">
+    <div class="space-y-12">
+        <header
+            class="flex justify-between items-center bg-indigo-900 text-white p-6 rounded-2xl shadow-lg"
+        >
+            <div>
+                <h1 class="text-3xl font-bold">📊 Reportes y Estadísticas</h1>
+                <p class="text-indigo-200 pt-2">
+                    Visualización del rendimiento
+                </p>
+            </div>
+            <a
+                href="/admin"
+                class="bg-indigo-700 hover:bg-indigo-600 px-4 py-2 rounded-lg font-bold transition"
+            >
+                ← Volver al Panel
+            </a>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div
+                class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700"
+            >
+                <h2
+                    class="text-xl font-bold text-slate-800 dark:text-white mb-6 text-center"
+                >
+                    Puntos por Usuario
+                </h2>
+                <canvas id="pointsChart"></canvas>
+            </div>
+
+            <div
+                class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700"
+            >
+                <h2
+                    class="text-xl font-bold text-slate-800 dark:text-white mb-6 text-center"
+                >
+                    Tareas Completadas
+                </h2>
+                <canvas id="tasksChart"></canvas>
+            </div>
+        </div>
+
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700 max-w-2xl mx-auto"
+        >
+            <h2
+                class="text-xl font-bold text-slate-800 dark:text-white mb-6 text-center"
+            >
+                Estado Global de Tareas
+            </h2>
+            <div class="h-64 flex justify-center">
+                <canvas id="statusChart"></canvas>
+            </div>
+        </div>
+    </div>
+</Layout>
+
+<script define:vars={{ chartData }}>
+    import Chart from "chart.js/auto";
+
+    // Points Chart
+    const ctxPoints = document.getElementById("pointsChart");
+    new Chart(ctxPoints, {
+        type: "bar",
+        data: {
+            labels: chartData.names,
+            datasets: [
+                {
+                    label: "Puntos Totales",
+                    data: chartData.pointsData,
+                    backgroundColor: [
+                        "rgba(255, 99, 132, 0.7)",
+                        "rgba(54, 162, 235, 0.7)",
+                        "rgba(255, 206, 86, 0.7)",
+                        "rgba(75, 192, 192, 0.7)",
+                    ],
+                    borderColor: [
+                        "rgba(255, 99, 132, 1)",
+                        "rgba(54, 162, 235, 1)",
+                        "rgba(255, 206, 86, 1)",
+                        "rgba(75, 192, 192, 1)",
+                    ],
+                    borderWidth: 1,
+                },
+            ],
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                },
+            },
+        },
+    });
+
+    // Tasks Completed Chart
+    const ctxTasks = document.getElementById("tasksChart");
+    new Chart(ctxTasks, {
+        type: "bar",
+        data: {
+            labels: chartData.names,
+            datasets: [
+                {
+                    label: "Tareas Verificadas",
+                    data: chartData.completedTasksData,
+                    backgroundColor: "rgba(153, 102, 255, 0.7)",
+                    borderColor: "rgba(153, 102, 255, 1)",
+                    borderWidth: 1,
+                },
+            ],
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1,
+                    },
+                },
+            },
+        },
+    });
+
+    // Global Status Chart
+    const ctxStatus = document.getElementById("statusChart");
+    new Chart(ctxStatus, {
+        type: "doughnut",
+        data: {
+            labels: ["Pendientes", "Completadas"],
+            datasets: [
+                {
+                    data: chartData.statusData,
+                    backgroundColor: [
+                        "rgba(201, 203, 207, 0.7)",
+                        "rgba(75, 192, 192, 0.7)",
+                    ],
+                    hoverOffset: 4,
+                },
+            ],
+        },
+    });
+</script>
