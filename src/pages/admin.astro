@@ -658,7 +658,7 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                       : "Pendiente"}
                                             </span>
                                         </td>
-                                        <td class="p-4">
+                                        <td class="p-4 flex gap-2">
                                             <form
                                                 method="POST"
                                                 onsubmit="return confirm('¿Borrar tarea?');"
@@ -673,7 +673,12 @@ const pendingRequests = allRequests.filter((r) => r.status === "pending");
                                                     name="taskId"
                                                     value={t.id}
                                                 />
-                                                <button class="text-red-400 hover:text-red-600 transition" />
+                                                <button
+                                                    class="text-red-400 hover:text-red-600 transition"
+                                                    type="submit"
+                                                >
+                                                    ❌
+                                                </button>
                                             </form>
                                             <button
                                                 class="edit-btn text-blue-400 hover:text-blue-600 transition"
